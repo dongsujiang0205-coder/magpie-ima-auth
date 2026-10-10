@@ -1,0 +1,25 @@
+# Local working files. Nothing here belongs in a repository: it is either a
+# credential, a capture of somebody's traffic, or a probe that cannot run for
+# anyone else. `_local/` holds all of those, moved there rather than deleted.
+
+_local/
+probe-out/
+
+# credentials and captures, wherever they land
+scripts/desktop-cookie.txt
+scripts/capture*.json
+scripts/capture.log
+scripts/capture.err
+scripts/copilot-models.json
+scripts/paid-models.json
+*.cookie
+*.sse
+
+node_modules/
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# a real cookie, if someone puts one in a file instead of the environment
+.env
+.env.*

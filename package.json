@@ -1,0 +1,33 @@
+{
+  "name": "magpie-ima-auth",
+  "version": "0.1.0",
+  "description": "magpie/OpenCode provider plugin for ima's 知识库 and Copilot accounts (腾讯 ima.copilot)",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": "./index.mjs",
+  "scripts": {
+    "test": "node --test ima.test.mjs",
+    "smoke": "node smoke.mjs",
+    "scan": "node scripts/scan-personal.mjs",
+    "verify:live": "node scripts/verify-live.mjs",
+    "verify:quota": "node scripts/verify-quota-live.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "README.md"
+  ],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "magpie",
+    "magpie-plugin",
+    "ima",
+    "ima-copilot",
+    "tencent"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dongsujiang0205-coder/magpie-ima-auth.git"
+  }
+}

@@ -1,0 +1,9 @@
+# ima's protocol is line-oriented and these files are read by Node everywhere,
+# including CI on Linux. Without this, git rewrites LF to CRLF on Windows and
+# every diff shows the whole file as changed.
+* text=auto eol=lf
+
+# the two that Windows tooling genuinely wants CRLF for
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
