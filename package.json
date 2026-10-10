@@ -26,6 +26,11 @@
     "tencent"
   ],
   "license": "MIT",
+  "author": "dongsujiang0205-coder",
+  "homepage": "https://github.com/dongsujiang0205-coder/magpie-ima-auth#readme",
+  "bugs": {
+    "url": "https://github.com/dongsujiang0205-coder/magpie-ima-auth/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dongsujiang0205-coder/magpie-ima-auth.git"
