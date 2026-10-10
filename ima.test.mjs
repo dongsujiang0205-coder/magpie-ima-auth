@@ -156,38 +156,6 @@ if (url.pathname === "/cgi-bin/model_manage/get_models") {
     })
   }
 
-  if (url.pathname === "/cgi-bin/daily_login_activity/get_activity_info") {
-    // 满签奖励 is a bonus row, not a day, so it must not be mistaken for one
-    fake.dailyInforms++
-    return json(res, {
-      code: 0,
-      msg: "ok",
-      checkin_days: 4,
-      total_reward_points: 200,
-      infos: [
-        { top: "周一", status: 1, reward: "50算力" },
-        { top: "今日", status: fake.todayStatus, reward: "50算力" },
-        { top: "周日", status: 4, reward: "50算力" },
-        { top: "满签奖励", status: 4, reward: "额外随机奖励" },
-      ],
-    })
-  }
-
-  // The claim answers 403 with an empty body and trpc-func-ret 20002 — a day
-  // that cannot be paid out. That is not one of the crypto channel's own codes
-  // (20004/20005/20006), and the same call under /cgi-bin/s/ would be a 404.
-  if (url.pathname === "/cgi-bin/daily_login_activity/check_in") {
-    fake.checkins.push(env)
-    // checkinStatus is separate from today's status on purpose: a day can be
-    // unpaid and still refused, which is the case a test has to be able to ask
-    // for, and which is what a 403/20002 on an unclaimed day means
-    if (fake.checkinStatus === 403) {
-      res.writeHead(403, { "trpc-func-ret": "20002" })
-      return res.end()
-    }
-    return json(res, { code: 0, msg: "ok", reward: 50 })
-  }
-
   res.writeHead(404).end("{}")
 })
 
@@ -198,13 +166,8 @@ function json(res, o) {
 fake.sessions = []
 fake.asked = []
 fake.refreshed = []
-fake.checkins = []
-fake.dailyInforms = 0
-fake.todayStatus = 2
 // set by a test to make the server answer wrongly; null means behave normally
 fake.fail = null
-// 403 makes the claim answer as a day that cannot be paid out
-fake.checkinStatus = 200
 fake.n = 0
 fake.issued = new Set(["T1"])
 
@@ -714,97 +677,6 @@ describe("算力 balance", () => {
       assert.equal(u.signIn, undefined, "a transport failure is not an expired sign-in")
     } finally {
       fake.fail = null
-    }
-  })
-})
-
-describe("the daily login reward", () => {
-  const authFor = () => ({ type: "oauth", access: "T1", refresh: "R1", cookie: COOKIE, uid: "UA", accountId: "UA", expires: Date.now() + 7200_000 })
-  const pluginFor = async () => {
-    const { ImaAuthPlugin } = await import("./index.mjs")
-    return await ImaAuthPlugin({ client: { auth: { set: async () => {} } } })
-  }
-
-  it("answers 'done' and does not call the claim on a day ima already paid out", async () => {
-    // status 2 is 今日 with the reward taken. Claiming again is the one thing
-    // that must not happen, so the status is read before the call is made.
-    fake.todayStatus = 2
-    fake.checkins.length = 0
-    const plugin = await pluginFor()
-    const r = await plugin.auth.checkin(async () => authFor())
-    assert.equal(r.outcome, "done")
-    assert.equal(r.streak, 4)
-    assert.equal(fake.checkins.length, 0, "an already-claimed day must not reach check_in")
-  })
-
-  it("answers 'claimed' on a day that has not been paid out", async () => {
-    fake.todayStatus = 3
-    fake.checkins.length = 0
-    const plugin = await pluginFor()
-    const r = await plugin.auth.checkin(async () => authFor())
-    assert.equal(r.outcome, "claimed")
-    assert.equal(r.credit, "50算力")
-    assert.equal(r.streak, 4)
-    assert.equal(fake.checkins.length, 1)
-    // reward_type is the one guess in here: the enum's names never reach the
-    // client, so the test pins the constant rather than proving it is right
-    assert.equal(fake.checkins[0].reward_type, 1)
-  })
-
-  it("answers 'failed' for a refusal, which magpie retries later the same day", async () => {
-    // 403 with trpc-func-ret 20002 is what a day that cannot be paid out looks
-    // like. It is not "ineligible" — magpie stops asking about an ineligible
-    // account, and this one is worth another try.
-    fake.todayStatus = 3
-    fake.checkins.length = 0
-    fake.checkinStatus = 403
-    const plugin = await pluginFor()
-    try {
-      const r = await plugin.auth.checkin(async () => authFor())
-      assert.equal(fake.checkins.length, 1, "the claim was sent once")
-      assert.equal(r.outcome, "failed")
-      assert.match(r.message, /403/)
-      assert.match(r.message, /20002/)
-    } finally {
-      fake.checkinStatus = 200
-      fake.checkins.length = 0
-    }
-  })
-
-  it("answers 'failed', not 'inactive', when ima names no day for today", async () => {
-    // "inactive" tells magpie there is no check-in to press and stops it
-    // asking. An empty list is ima's shape changing, which is worth a retry.
-    fake.todayStatus = 2
-    const plugin = await pluginFor()
-    fake.fail = {
-      path: "/cgi-bin/daily_login_activity/get_activity_info",
-      body: JSON.stringify({ code: 0, msg: "ok", checkin_days: 4, total_reward_points: 200, infos: [] }),
-    }
-    try {
-      const r = await plugin.auth.checkin(async () => authFor())
-      assert.equal(r.outcome, "failed")
-      assert.match(r.message, /今日/)
-    } finally {
-      fake.fail = null
-    }
-  })
-
-  it("reports a sign-in with no cookie instead of throwing", async () => {
-    const plugin = await pluginFor()
-    const r = await plugin.auth.checkin(async () => ({ type: "oauth", access: "", uid: "UB" }))
-    assert.equal(r.outcome, "failed")
-    assert.match(String(r.message), /no cookie/)
-  })
-
-  it("answers in one of the outcomes magpie renders", async () => {
-    // magpie's wbCheckinLine switches on exactly these and prints its own
-    // "couldn't check in" for anything else
-    const plugin = await pluginFor()
-    const known = new Set(["claimed", "done", "ineligible", "inactive", "captcha", "failed"])
-    for (const status of [2, 3]) {
-      fake.todayStatus = status
-      const r = await plugin.auth.checkin(async () => authFor())
-      assert.ok(known.has(r.outcome), `outcome "${r.outcome}" is one magpie renders`)
     }
   })
 })

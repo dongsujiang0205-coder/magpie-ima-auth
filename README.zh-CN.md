@@ -112,19 +112,29 @@ prompt、解析打标签的回复"的方式模拟，但那依赖模型本来就�
 **知识库定向。** ima 的问答跑在会话打开时绑定的知识库上，本插件开的是普通
 会话，不是绑定某个知识库 id 的。
 
-## 每日签到
+## 每日签到（未实现）
 
-ima 每登录一天给算力。magpie 的 `auth.checkin` 钩子会调ima 自己的领取接口：
-先读当日状态，只在当天还没领时才发领取请求，所以已经领过的日子**一次请求都
-不会发**。这是防止参数猜错导致重复发放的唯一保证。
+ima 每登录一天给 50 算力，领取接口是
+`/cgi-bin/daily_login_activity/check_in`。**它无法从 ima 客户端之外调用**——
+以下都是在 app 自己标为可领的那天（`status: 3`、`button: "签到"`）实测的：
 
-> **一处已知的未验证点：** 领取请求的 `reward_type` 是一个猜的常量。它是
-> protobuf 枚举，名字不会传到客户端；不传会得
-> `invalid reward type: TYPE_UNSPECIFIED`，而试过的每个值回答都一样。到目前为止
-> 测过的每一天都已经领过了，所以那个403 无法和"常量错了"区分开。
->
-> 想验证：**在 app 里点签到之前**，跑一次
-> `npm run verify:quota`（需要设 `IMA_COOKIE`），输出最后一行余额变了就是对了。
+- 路由确实存在：它回 403，而同前缀下其他名字（`claim_reward`、`share`、
+  `sign`、`reward` 等）全回 404。
+- 所有请求体都被拒：`{}`、`reward_type` 0–20、`day`、`date`、`top`。
+- 所有请求头组合都被拒：加/不加 `x-ima-uid`、`x-ima-token`、`sec-fetch-*`；
+  以及 `text/plain`、form-encoded、不带 Content-Type。
+- 放在加密前缀 `/cgi-bin/s/` 下是 404。
+- 调用它的代码不在 ima **1663 个扩展脚本**中的任何一个里，所以连请求体
+  长什么样都读不出来。
+- 唯一能让请求加密的办法是客户端自己的调试端口，而 ima 已经不再开放：
+  `--remote-debugging-port` 进了主进程命令行，但没有任何东西监听。
+
+所以本插件**不导出** `auth.checkin`。否则 magpie 界面上会出现一个每天
+都失败、用户也无从处理的「每日签到」——和下面那个桌面端登录是同一个道理。
+
+读取签到状态仍然可以：`/cgi-bin/daily_login_activity/get_activity_info`
+按天返回，每行带 `top`、`status`、`reward`，还有一个很有用的 `button`——
+它直接告诉你 app 会做什么（`签到` / `已领取` / `已过期`）。
 
 ## 排查
 
@@ -135,13 +145,12 @@ ima 每登录一天给算力。magpie 的 `auth.checkin` 钩子会调ima 自己�
 | 模型列表只有 8 个 | 没登录。登录后会多出 copilot 模型和你自己的自定义模型 |
 | 没有 `copilot/` 开头的模型 | 没登录，或该账号的 Copilot 没开通 |
 | 用量卡显示算力但很慢 | ima 的接口慢，`get_balance` 是实时的 |
-| 签到一直 `failed` | 见上面那条未验证点；余额和用量卡不受影响 |
 | Agent 报工具错误 | 预期内，不支持工具 |
 
 ## 自查
 
 ```sh
-npm test             # 46 个测试，含对假服务器的一次端到端对话
+npm test             # 40 个测试，含对假服务器的一次端到端对话
 node smoke.mjs       # 10 项检查：magpie 调的每个钩子，形状按 magpie 源码
 npm run scan         # 这个仓库要发出去的东西里没有个人信息
 ```

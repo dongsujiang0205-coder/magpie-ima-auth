@@ -17,7 +17,7 @@ const ok = (name, fn) => checks.push({ name, fn })
 // (verbatim from magpie's binary; see scripts/read-magpie-binary.mjs)
 const MAGPIE_HOOKS = {
   provider: ["id", "models"],
-  auth: ["provider", "refreshLead", "refresh", "usage", "checkin", "loader", "methods"],
+  auth: ["provider", "refreshLead", "refresh", "usage", "loader", "methods"],
 }
 
 ok("exports one async plugin function", async () => {
@@ -57,26 +57,21 @@ ok("answers usage in magpie's shape, with balance as a string", async () => {
   if (u.windows !== undefined) assert.ok(Array.isArray(u.windows))
 })
 
-// ---- the checkin contract ----------------------------------------------------
-// auth.checkin(getAuth, provider) → {
-//   outcome: "claimed"|"done"|"ineligible"|"inactive"|"captcha"|"failed",
-//   credit?, streak?, message?
-// }
-ok("answers checkin in magpie's shape, with an outcome it renders", async () => {
-  const p = await ImaAuthPlugin({})
-  const c = await p.auth.checkin(async () => ({ type: "oauth", access: "", uid: "U" }))
-  const RENDERABLE = ["claimed", "done", "ineligible", "inactive", "captcha", "failed"]
-  assert.ok(RENDERABLE.includes(c.outcome), `outcome "${c.outcome}" is one magpie renders`)
-  assert.ok(typeof c.message === "string" && c.message.length > 0, "says what happened")
-})
-
 // ---- a hook that throws is a failure to magpie ------------------------------
-ok("neither quota hook throws, whatever the sign-in is", async () => {
+ok("usage never throws, whatever the sign-in is", async () => {
   const p = await ImaAuthPlugin({})
   for (const bad of [null, undefined, {}, { type: "api" }, { type: "oauth" }, { type: "oauth", cookie: "x" }]) {
     await p.auth.usage(async () => bad)
-    await p.auth.checkin(async () => bad)
   }
+})
+
+// ima's daily check-in is not implemented, deliberately: check_in refuses every
+// request from outside ima's own client (403/20002 on a day the app itself
+// reported as claimable), and the code that would call it is in none of the
+// 1663 extension bundles. Shipping it would be a switch that always fails.
+ok("does not offer a check-in that cannot work", async () => {
+  const p = await ImaAuthPlugin({})
+  assert.equal(p.auth.checkin, undefined, "no auth.checkin hook at all")
 })
 
 // ---- the sign-in magpie offers ----------------------------------------------

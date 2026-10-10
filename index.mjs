@@ -387,88 +387,6 @@ async function readBalance(a) {
   }
 }
 
-// get_activity_info lists the last seven days, each with a status:
-//   1 expired   2 already claimed   4 not reached yet
-// plus the running checkin_days and total_reward_points. 满签奖励 is the bonus
-// row rather than a day, so it is not the same shape and must not be read as one.
-const DAY_STATUS = { EXPIRED: 1, CLAIMED: 2, PENDING: 4 }
-
-async function readDaily(a) {
-  const env = await post(API + "/daily_login_activity/get_activity_info", {}, a)
-  const infos = Array.isArray(env.infos) ? env.infos : []
-  return {
-    infos,
-    today: infos.find((i) => i?.top === "今日") ?? null,
-    checkin_days: Number(env.checkin_days ?? 0),
-    total_reward_points: Number(env.total_reward_points ?? 0),
-  }
-}
-
-// check_in is the claim itself. Two things about it are worth stating plainly,
-// because neither was provable from the wire:
-//
-//  - it is plain, not behind the crypto channel. A 403 here carries
-//    trpc-func-ret 20002, which is not one of the channel's own rejections
-//    (20004/20005/20006), and the same request under /cgi-bin/s/ is a 404.
-//  - reward_type is a protobuf enum whose names never reach the client, and
-//    every value tried answered identically, so which one names "today's
-//    50 算力" is a guess. It is a guess that costs a reported failure at worst:
-//    the status is read first and the call is only made on a day that is not
-//    already claimed, so no wrong constant can be paid out twice.
-const REWARD_DAILY = 1
-
-async function checkIn(a, rewardType) {
-  const res = await fetch(API + "/daily_login_activity/check_in", {
-    method: "POST",
-    headers: headers(a),
-    body: JSON.stringify({ reward_type: rewardType }),
-    signal: AbortSignal.timeout(30_000),
-  })
-  const text = await res.text()
-  let env = null
-  try {
-    env = JSON.parse(text)
-  } catch {}
-  return { status: res.status, ret: res.headers.get("trpc-func-ret"), code: Number(env?.code ?? 0), msg: env?.msg ?? "", text }
-}
-
-// claimDaily answers in magpie's check-in shape:
-//
-//   auth.checkin(getAuth, provider) → {
-//     outcome: "claimed" (checked in now) | "done" (in already today) |
-//       "ineligible" | "inactive" | "captcha" | "failed",
-//     credit? (what it gave), streak? (days in a row), message?
-//   }
-//
-// (read out of magpie's own source, which ships its contract as a comment on
-// the hook; "ineligible" is not "failed" — magpie treats a failure as worth
-// retrying later the same day, which is right for a refusal and wrong for an
-// account that simply has no such programme.)
-async function claimDaily(a) {
-  const state = await readDaily(a)
-  const streak = state.checkin_days
-  if (!state.today) {
-    // ima did not name a day for today. That is a shape it stopped answering
-    // with, not an account without a daily login, so it is a failure magpie
-    // should try again rather than an "inactive" it would stop asking about.
-    return { outcome: "failed", message: `ima 没有返回今日记录（连续 ${streak} 天）` }
-  }
-  // the status is read first and the claim only sent on a day that is not
-  // already paid out — the one guarantee that a wrong constant cannot pay
-  // twice
-  if (state.today.status === DAY_STATUS.CLAIMED) {
-    return { outcome: "done", credit: String(state.today.reward ?? ""), streak }
-  }
-  const r = await checkIn(a, REWARD_DAILY)
-  if (r.status === 200 && r.code === 0) {
-    return { outcome: "claimed", credit: String(state.today.reward ?? ""), streak }
-  }
-  return {
-    outcome: "failed",
-    message: `领取未成功（HTTP ${r.status}${r.ret ? ` ret=${r.ret}` : ""}${r.msg ? ` ${r.msg}` : ""}）`,
-  }
-}
-
 // ---- sessions ------------------------------------------------------------------
 
 // sessions is the open ima sessions, by account and conversation. An agent's
@@ -1366,25 +1284,6 @@ export const ImaAuthPlugin = async ({ client, $ }) => {
           // no signIn key: this is a read that failed, not one that proves the
           // account is signed out, and marking it expired would be wrong
           return { error: `ima: ${e?.message ?? e}` }
-        }
-      },
-
-      //   auth.checkin(getAuth, provider) → {
-      //     outcome: "claimed" | "done" | "ineligible" | "inactive" |
-      //       "captcha" | "failed",
-      //     credit?, streak?, message?
-      //   }
-      //
-      // magpie presses this once a Beijing day per account while the user has
-      // the plugin's Daily check-in on, and again later that day after a
-      // failure; a hook that throws counts as a failure, so it does not throw.
-      checkin: async (getAuth) => {
-        try {
-          const a = fromAuth(typeof getAuth === "function" ? await getAuth() : getAuth)
-          if (!a) return { outcome: "failed", message: "ima: that sign-in carries no cookie" }
-          return await claimDaily(a)
-        } catch (e) {
-          return { outcome: "failed", message: `ima: ${e?.message ?? e}` }
         }
       },
 

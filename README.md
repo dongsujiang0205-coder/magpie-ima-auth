@@ -276,72 +276,47 @@ Also missing, and not guessed at:
 
 ## 算力 and the daily login
 
-Both are magpie's own hooks, which OpenCode ignores. Their shapes are not this
-package's invention — magpie ships its contract as a comment on each hook in
-its source (`auth.usage` and `auth.checkin`, read out of
-`magpie-windows-amd64.exe`), and this package answers in exactly those terms:
-
-```js
-auth.usage(getAuth, provider) → {
-  plan?, user?, until?, renew?: "auto" | "off", balance?, error?,
-  resets?: { count, until?, byWindow?, fiveHour?, weekly? },
-  windows?: [{ name, used /*percent*/, display?, amount?, limit?, unit?, … }],
-  signIn?: "expired" | "kept" | "renewed",
-}
-
-auth.checkin(getAuth, provider) → {
-  outcome: "claimed" | "done" | "ineligible" | "inactive" | "captcha" | "failed",
-  credit?, streak?, message?,
-}
-```
-
-`balance` is a **string**, not a number — magpie renders it verbatim under
-"What is left on the account besides its windows", which is exactly what 算力
-is:
+`auth.usage` reports what is left of the account's 算力:
 
 ```js
 { balance: "279.4 算力", user: "<uid>", windows: [] }
 ```
 
-ima publishes no rate-limit window, so `windows` stays empty rather than
-carrying an invented one. `signIn` is only ever set when the sign-in really is
-gone: a transport failure must not mark the account expired.
+`display_amount` on the wire is the figure ima itself shows and is what
+`balance` carries; the `balance` field on the wire is the same number
+truncated. Both arrive as strings at the *top level* of the envelope, not
+under `data`. ima publishes no rate-limit window, so `windows` stays empty
+rather than carrying an invented one — the allowance *is* the balance, and
+magpie renders it verbatim under "what is left on the account besides its
+windows".
 
-The daily login reads as:
+### The daily login reward is not implemented
 
-```js
-{ outcome: "done", credit: "50算力", streak: 4 }
-```
+ima pays 50 算力 for logging in on the day, and there is a
+`/cgi-bin/daily_login_activity/check_in` that claims it. **It cannot be
+called from outside ima's own client**, measured on a day the app itself
+reported as claimable (`status: 3`, `button: "签到"`):
 
-The claim is `POST /cgi-bin/daily_login_activity/check_in`. Three things about
-it are worth knowing, because two of them cost most of the time to find:
+- The route exists — it answers 403, where every wrong name under the same
+  prefix answers 404 (`claim_reward`, `share`, `sign`, `reward` …).
+- It refuses every body: `{}`, `reward_type` 0–20, `day`, `date`, `top`.
+- It refuses every header: with or without `x-ima-uid`, `x-ima-token`,
+  `sec-fetch-*`; and as `text/plain`, form-encoded, or with no content type.
+- Under `/cgi-bin/s/` — the encrypted prefix — it is a 404.
+- The code that calls it appears in **none** of ima's 1663 extension
+  bundles, so the request shape cannot be read off it either.
+- The one route that would let a request be encrypted is the client's own
+  debugging port, which ima no longer opens: `--remote-debugging-port`
+  reaches the main process's command line and nothing ever listens.
 
-- **The status is read first, and the claim is only sent on a day that is not
-  already paid out.** `get_activity_info` lists the last seven days with a
-  status each — `1` expired, `2` already claimed, `4` not reached yet — and
-  `满签奖励` is a bonus row, not a day, so it must not be read as one. On an
-  already-claimed day this answers `"done"` without sending anything, which is
-  the only guarantee that a wrong constant cannot pay out twice.
-- **It is plain, not behind the crypto channel.** A refusal comes back as HTTP
-  403 with an *empty body* and `trpc-func-ret: 20002` — not one of the
-  channel's own rejections (20004/20005/20006), and the same request under
-  `/cgi-bin/s/` is a 404. Unlike both chats, it needs no bridge.
-- **A refusal answers `"failed"`, not `"ineligible"`.** magpie retries a failure
-  later the same day and stops asking about an ineligible account; a 403 on a
-  day that was not already paid out is worth another try. The same goes for an
-  empty day list — that is ima's shape changing, not an account without a daily
-  login, so it is `"failed"` rather than `"inactive"`.
-- **`reward_type` is a guess.** It is a protobuf enum whose names never reach
-  the client; omitting it gets `invalid reward type: TYPE_UNSPECIFIED`, and
-  every value tried answered identically. `1` is wired in and pinned by a test,
-  but it has never been seen to succeed: on every day measured so far the day
-  was already claimed, so the 403/20002 cannot be told apart from a wrong
-  constant. Run `node scripts/verify-quota-live.mjs` on a morning before
-  claiming in the app to settle it — the balance in that run's last line is the
-  proof.
+So `auth.checkin` is not exported. magpie would otherwise show a Daily
+check-in row that failed every day with no way for the user to act on it —
+the same reasoning as the desktop sign-in below.
 
-`POST /cgi-bin/token_manager/get_history` reads the 算力 ledger with
-`{ page_size, tab }`; without a `tab` ima answers `invalid history tab`.
+Reading the day list still works, if you want the streak:
+`/cgi-bin/daily_login_activity/get_activity_info` answers with a row per
+day, each carrying `top`, `status`, `reward` and — usefully — `button`, which
+says what the app would do (`签到`, `已领取`, `已过期`).
 
 ## Use
 
@@ -375,19 +350,14 @@ then `opencode auth login`.
 ## Checking it
 
 ```sh
-npm test             # 46 tests, including an end-to-end turn against a fake ima
+npm test             # 40 tests, including an end-to-end turn against a fake ima
 node smoke.mjs       # 10 checks: every hook magpie calls, in magpie's own shapes
 
 $env:IMA_COOKIE = "..."        # the x-ima-cookie header's own value, from a real ima
 npm run verify:live            # the plugin's own code, against real ima
-npm run verify:quota           # 算力 balance, and the daily check-in claim
+npm run verify:quota           # the 算力 balance, through auth.usage
 npm run scan                   # nothing identifying in what this repository ships
 ```
-
-Run `verify:quota` on a morning **before** signing in through the app. It
-reads the day list, sends the claim only when the day has not been paid out,
-and prints whether the balance moved — which is the only thing that settles
-the `reward_type` constant, for the reason given above.
 
 The tests run a real HTTP server that speaks ima's session + SSE shape
 (`IMA_HOST` points the plugin at it), so the bridge is exercised for what it
@@ -406,7 +376,7 @@ single-file executable, and the comments on `auth.usage` / `auth.checkin` there
 are what this plugin answers in. Pass it the path to your magpie binary:
 
 ```sh
-node scripts/read-magpie-binary.mjs "<path to magpie>" auth.checkin
+node scripts/read-magpie-binary.mjs "<path to magpie>" auth.usage
 ```
 
 `scan-personal.mjs` is what you run before publishing a fork: it checks every
