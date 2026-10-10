@@ -1,5 +1,7 @@
 # magpie-ima-auth
 
+English | [简体中文](README.zh-CN.md)
+
 Signs in to **ima** (腾讯 ima.copilot, `ima.qq.com`) — the AI knowledge
 workbench — and puts its models in front of an agent, drawn on that account's
 own 算力.
