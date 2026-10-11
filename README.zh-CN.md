@@ -159,6 +159,29 @@ node smoke.mjs       # 10 项检查：magpie 调的每个钩子，形状按 magp
 npm run scan         # 这个仓库要发出去的东西里没有个人信息
 ```
 
+## 发布
+
+每次推送都是一个版本。`package.json` 里的版本号标记这次发布描述的状态，
+`v*` 标签标记代码是从哪个提交切出来的。
+
+```sh
+# 1. 定版本：修 bug 用 patch，加功能用 minor，
+#    插件与 magpie 的契约变了才用 major
+npm version patch        # 0.1.0 -> 0.1.1（同时提交并打标签）
+
+# 2. 提交和标签一起推
+git push origin main --tags
+
+# 3. 发到 npm
+npm publish
+```
+
+标签比看起来重要：magpie 的 `magpie plugin update` 会装每个插件的最新版本，
+而标签就是声明"最新版本对应哪个提交"。两个标签之间的提交属于开发过程——
+版本号只在切发布时才动，所以多个提交可以共用一个版本号。
+
+GitHub 上也有发布页：**Releases → Create a new release** → 选刚推的标签。
+
 ## 许可
 
 MIT。详见 [LICENSE](LICENSE)。

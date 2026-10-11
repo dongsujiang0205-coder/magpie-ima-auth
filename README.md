@@ -416,6 +416,31 @@ often:
   either chat. The reverse-engineering of them was a wrong turn taken because
   the two implementations' notes were followed instead of asking ima.
 
+## Releasing
+
+Every pushed change is a version. The version in `package.json` marks the state
+a release describes, and a `v*` tag marks the commit it was cut from.
+
+```sh
+# 1. decide the version: patch for a fix, minor for a feature,
+#    major when the plugin's contract with magpie changes
+npm version patch        # 0.1.0 -> 0.1.1   (also commits and tags)
+
+# 2. push the commit and the tag together
+git push origin main --tags
+
+# 3. publish to npm
+npm publish
+```
+
+Tagging matters more than it looks: magpie's `magpie plugin update` installs the
+newest version of each plugin, and a tag is what says which commit that is.
+Commits between two tags are development — the version number only ever moves
+when a release is being cut, which is why several commits can share one version.
+
+Releases are also on GitHub: **Releases → Create a new release** → pick the tag
+you just pushed.
+
 ## License
 
 MIT
