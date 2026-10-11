@@ -14,7 +14,9 @@
   },
   "files": [
     "index.mjs",
-    "README.md"
+    "icon.png",
+    "README.md",
+    "README.zh-CN.md"
   ],
   "keywords": [
     "opencode",
@@ -26,6 +28,7 @@
     "tencent"
   ],
   "license": "MIT",
+  "icon": "icon.png",
   "author": "dongsujiang0205-coder",
   "homepage": "https://github.com/dongsujiang0205-coder/magpie-ima-auth#readme",
   "bugs": {

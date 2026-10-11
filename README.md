@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.png" width="96" alt="ima">
+</p>
+
 # magpie-ima-auth
 
 English | [简体中文](README.zh-CN.md)
