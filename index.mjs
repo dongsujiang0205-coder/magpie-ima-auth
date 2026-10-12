@@ -273,16 +273,42 @@ function toAuth(cookie, extra = {}) {
 // fromAuth is a stored sign-in as the requests below use it. `source` is not
 // carried on: a sign-in saved by an earlier version of this plugin, through the
 // ima-desktop method, is an ordinary cookie sign-in now and is read as one.
+// fromAuth is a stored sign-in as the requests below use it. It carries
+// `expires` because that is the only thing that decides whether a renewal is
+// due: magpie's own record has the field, and dropping it here made `stale()`
+// permanently false, so the token quietly died after its two hours and the user
+// was asked to paste the cookie again.
 function fromAuth(auth) {
   if (auth?.type !== "oauth") return null
   const cookie = auth.cookie || `IMA-TOKEN=${auth.access}; IMA-REFRESH-TOKEN=${auth.refresh}; IMA-UID=${auth.uid}`
   if (!cookieField(cookie, "IMA-TOKEN")) return null
-  return { cookie, uid: auth.uid || cookieField(cookie, "IMA-UID"), refresh: auth.refresh || cookieField(cookie, "IMA-REFRESH-TOKEN") }
+  return {
+    cookie,
+    uid: auth.uid || cookieField(cookie, "IMA-UID"),
+    refresh: auth.refresh || cookieField(cookie, "IMA-REFRESH-TOKEN"),
+    // magpie stores the token's end; a sign-in with none is treated as already
+    // due, because a record without one cannot be renewed on a schedule and
+    // waiting for the next request to fail is how this ends up asking for the
+    // cookie every two hours
+    expires: Number(auth.expires) || 0,
+    // when this process last renewed it, for the timer that covers a record
+    // with no `expires`
+    renewedAt: Number(auth.renewedAt) || 0,
+  }
 }
 
 // stale is a sign-in whose token is within SKEW of its end.
+//
+// A record with no `expires` is treated as due, not as fresh: there is no
+// schedule to renew on, so the alternative is to use the token until ima
+// refuses it, which is exactly how the user ends up pasting a cookie every two
+// hours. ima's tokens last two hours, so renewing on a record that cannot say
+// when it ends costs one refresh per call, which /auth_login/refresh answers
+// in well under a second — and the single-flight below keeps concurrent callers
+// from spending the same refresh token.
 function stale(a) {
-  return !!a.expires && Date.now() >= a.expires - SKEW
+  if (!a.expires) return true
+  return Date.now() >= a.expires - SKEW
 }
 
 // renewing is each renewal in flight, by account and refresh token, so two
@@ -311,6 +337,9 @@ async function renew(a, save) {
         uid: a.uid,
         refresh: a.refresh,
         expires: Date.now() + valid * 1000,
+        // saved back so the timer in refreshed() has something to count from
+        // even when the record carries no `expires`
+        renewedAt: Date.now(),
       }
       await save?.(next)
       return next
@@ -332,7 +361,11 @@ async function fresh(a, save) {
     return await renew(a, save)
   } catch (e) {
     const id = a.uid || "?"
-    if (Date.now() >= a.expires) {
+    // only give up when the token is genuinely known to be past its end. A
+    // record with no `expires` has not been proven dead — the renewal failing
+    // is not the same as the token being expired, and reporting the latter
+    // would tell a user with a perfectly good sign-in to paste again.
+    if (a.expires && Date.now() >= a.expires) {
       warned.add(id)
       throw new Error(`ima's sign-in has ended and could not be renewed (${e?.message ?? e}); sign in again`)
     }
@@ -344,14 +377,54 @@ async function fresh(a, save) {
   }
 }
 
-// refreshed is what magpie's auth.refresh hook renews ahead of time. It
-// returns only the fields that changed, which is what magpie saves back.
+// RENEW_EVERY is how often a sign-in is renewed when the record does not say
+// when its token ends. ima's tokens last two hours; renewing hourly leaves
+// room for a failed attempt without the sign-in going stale in the meantime.
+const RENEW_EVERY = 60 * 60 * 1000
+
+// renewed is what magpie's auth.refresh hook calls to keep a sign-in alive.
+// It returns only the fields that changed, which is what magpie saves back.
+//
+// The previous version asked `stale()` about a freshly-built object rather than
+// the sign-in, so it read `auth.expires` on its own — which magpie does store,
+// but the check was skipped entirely whenever that field was absent, and the
+// result was a plugin that used its token until ima refused it and then asked
+// the user to paste the cookie again. It renews on a schedule instead.
 async function refreshed(auth) {
   const a = fromAuth(auth)
-  if (!a || !stale({ expires: auth.expires })) return undefined
-  const next = await renew(a)
+  if (!a) return undefined
+
+  const expires = Number(auth.expires) || 0
+  // with an end known, renew ahead of it; without one, renew on a timer so the
+  // two-hour token is replaced while it still works
+  const due = expires ? Date.now() >= expires - SKEW : Date.now() >= (a.renewedAt ?? 0) + RENEW_EVERY
+
+  if (!due) return undefined
+  // an account with no refresh token cannot renew itself, and saying so once is
+  // better than throwing on every call
+  if (!a.refresh) {
+    if (!warned.has(a.uid || "?")) {
+      warned.add(a.uid || "?")
+      console.warn("[ima] no refresh token in the stored sign-in; paste the cookie again to keep it alive")
+    }
+    return undefined
+  }
+
+  let next
+  try {
+    next = await renew(a)
+  } catch (e) {
+    // a renewal that fails is not a reason to throw here: magpie treats a throw
+    // from refresh as a hard failure, and the existing token may still work for
+    // a while. Report nothing and let the next call try again.
+    console.warn(`[ima] token renewal failed (${e?.message ?? e}); will retry`)
+    return undefined
+  }
+
   const out = {}
-  for (const k of ["access", "refresh", "cookie", "expires"]) if (next[k] !== auth[k]) out[k] = next[k]
+  for (const k of ["access", "refresh", "cookie", "expires", "renewedAt"]) {
+    if (next[k] !== undefined && next[k] !== auth[k]) out[k] = next[k]
+  }
   return Object.keys(out).length ? out : undefined
 }
 
@@ -1255,7 +1328,9 @@ export const ImaAuthPlugin = async ({ client, $ }) => {
       provider: "ima",
       // magpie renews ahead of time, once per account, before its requests,
       // models and usage ask. The check inside the loader stays for OpenCode,
-      // which doesn't call this.
+      // which doesn't call this — and usage renews for itself too, because a
+      // card the user refreshes by hand has no reason to wait for a background
+      // pass that may not have run.
       refreshLead: SKEW + 60 * 1000,
       refresh: (auth) => refreshed(auth),
 
@@ -1276,8 +1351,14 @@ export const ImaAuthPlugin = async ({ client, $ }) => {
       // empty and the allowance is the balance.
       usage: async (getAuth) => {
         try {
-          const a = fromAuth(typeof getAuth === "function" ? await getAuth() : getAuth)
-          if (!a) return { error: "ima: that sign-in carries no cookie", signIn: "expired" }
+          const auth = typeof getAuth === "function" ? await getAuth() : getAuth
+          const stored = fromAuth(auth)
+          if (!stored) return { error: "ima: that sign-in carries no cookie", signIn: "expired" }
+          // fresh() renews when the token is due, and returns the account to
+          // read with. Reading with the old token instead is what made this
+          // card say "unavailable" hours after the sign-in had gone, because
+          // the token had died and nothing here had replaced it.
+          const a = await fresh(stored)
           const b = await readBalance(a)
           return { balance: `${b.balance} ${b.unit}`, user: a.uid || "", windows: [] }
         } catch (e) {

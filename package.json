@@ -10,7 +10,8 @@
     "smoke": "node smoke.mjs",
     "scan": "node scripts/scan-personal.mjs",
     "verify:live": "node scripts/verify-live.mjs",
-    "verify:quota": "node scripts/verify-quota-live.mjs"
+    "verify:quota": "node scripts/verify-quota-live.mjs",
+    "verify:renew": "node scripts/verify-auto-renew.mjs"
   },
   "files": [
     "index.mjs",

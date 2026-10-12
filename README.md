@@ -127,6 +127,29 @@ in `plugin-auth.json`.
 ima's token lives about two hours and is renewed at `POST /auth_login/refresh`
 with `{refresh_token, user_id, registration_id}`.
 
+**The sign-in renews itself.** Paste the cookie once; magpie calls `auth.refresh`
+on a schedule and the plugin spends the refresh token, saving back what changed.
+`auth.usage` renews too before it reads, so a card refreshed by hand recovers on
+its own rather than waiting for a background pass. ima's refresh tokens rotate —
+the second refresh of a pair is answered with a dead one — so concurrent renewals
+are single-flighted per account.
+
+Two things this depends on, both of which were wrong before and are the reason
+an earlier version asked for the cookie every two hours:
+
+- **The stored record's `expires` has to be carried through.** `fromAuth` used to
+  drop it, and the check that decides whether to renew asked a freshly built
+  object instead of the sign-in, so a record without it was treated as "not due"
+  and never renewed.
+- **A record with no `expires` is renewed on a timer, not assumed fresh.** There
+  is no schedule to renew on, so the alternative is using the token until ima
+  refuses it — which is how the card ends up saying "unavailable" hours after
+  the sign-in quietly died.
+
+A renewal that fails returns nothing rather than throwing: magpie treats a throw
+from `auth.refresh` as fatal, and a token with time left on it should not be
+brought down by a renewal that did not work.
+
 **ima rotates the refresh token** — a renewal spends the old one. Two
 concurrent renewals of one account leave the second holding a dead token, and
 every request after it fails `600001` until the account is signed in again.

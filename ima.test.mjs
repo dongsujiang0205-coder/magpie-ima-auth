@@ -680,3 +680,80 @@ describe("算力 balance", () => {
     }
   })
 })
+
+describe("keeping the sign-in alive", () => {
+  const pluginFor = async () => {
+    const { ImaAuthPlugin } = await import("./index.mjs")
+    return await ImaAuthPlugin({ client: { auth: { set: async () => {} } } })
+  }
+  const base = (extra = {}) => ({
+    type: "oauth",
+    access: "T1",
+    refresh: "R1",
+    cookie: COOKIE,
+    uid: "UR",
+    accountId: "UR",
+    expires: Date.now() + 7200_000,
+    ...extra,
+  })
+
+  it("renews a sign-in whose token is nearly at its end", async () => {
+    fake.refreshed.length = 0
+    const plugin = await pluginFor()
+    // two minutes left, SKEW is ten: this is inside the renewal window
+    const auth = base({ expires: Date.now() + 120_000 })
+    const out = await plugin.auth.refresh(auth)
+    assert.equal(fake.refreshed.length, 1, "the renewal was spent")
+    assert.equal(out.access, "T2", "a new token is what it answers with")
+    assert.ok(out.expires > auth.expires, "the new token has its own end")
+    assert.equal(out.uid, undefined, "a field that did not change is not returned")
+    assert.ok(out.cookie && out.cookie.includes("IMA-TOKEN=T2"), "the cookie carries the new token")
+  })
+
+  it("leaves a sign-in that is not due alone", async () => {
+    fake.refreshed.length = 0
+    const plugin = await pluginFor()
+    const out = await plugin.auth.refresh(base())
+    assert.equal(out, undefined, "nothing to save")
+    assert.equal(fake.refreshed.length, 0, "no renewal spent")
+  })
+
+  it("renews on a timer when the record says when no end", async () => {
+    // magpie's own record for ima carried no `expires` in the field this check
+    // reads, and the old code skipped renewal entirely in that case — which is
+    // how the token came to die two hours later with the user asked to paste
+    // the cookie again.
+    fake.refreshed.length = 0
+    const plugin = await pluginFor()
+    const auth = base({ expires: undefined })
+    const out = await plugin.auth.refresh(auth)
+    assert.equal(fake.refreshed.length, 1, "a record with no end is renewed")
+    assert.equal(out.access, "T2")
+
+    // and then it does not renew again immediately
+    fake.refreshed.length = 0
+    const again = await plugin.auth.refresh({ ...auth, ...out })
+    assert.equal(fake.refreshed.length, 0, "the timer holds until it passes")
+    assert.equal(again, undefined)
+  })
+
+  it("never throws when the renewal fails — magpie treats that as fatal", async () => {
+    const plugin = await pluginFor()
+    // no refresh token: nothing to spend, and that is not an exception
+    const out = await plugin.auth.refresh({ type: "oauth", access: "T1", cookie: "IMA-TOKEN=T1; IMA-UID=UR", uid: "UR", expires: Date.now() + 1000 })
+    assert.equal(out, undefined, "reports nothing rather than throwing")
+  })
+
+  it("reads the balance on a renewed token, not the dead one", async () => {
+    // the actual failure the user reported: usage read the stored cookie after
+    // its token had died, so the card said "unavailable" while the sign-in was
+    // renewable. usage has to renew first.
+    fake.refreshed.length = 0
+    fake.issued.delete("T2")
+    const plugin = await pluginFor()
+    const u = await plugin.auth.usage(async () => base({ expires: Date.now() - 1000 }))
+    assert.equal(fake.refreshed.length, 1, "usage renewed before reading")
+    assert.equal(u.balance, "279.4 算力", "the balance came back")
+    assert.equal(u.error, undefined)
+  })
+})
