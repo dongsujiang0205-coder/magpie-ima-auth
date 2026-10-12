@@ -11,7 +11,8 @@
     "scan": "node scripts/scan-personal.mjs",
     "verify:live": "node scripts/verify-live.mjs",
     "verify:quota": "node scripts/verify-quota-live.mjs",
-    "verify:renew": "node scripts/verify-auto-renew.mjs"
+    "verify:renew": "node scripts/verify-auto-renew.mjs",
+    "verify:icon": "node scripts/verify-icon-url.mjs"
   },
   "files": [
     "index.mjs",
