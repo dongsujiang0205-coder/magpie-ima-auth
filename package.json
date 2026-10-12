@@ -1,6 +1,6 @@
 {
   "name": "magpie-ima-auth",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "magpie/OpenCode provider plugin for ima's 知识库 and Copilot accounts (腾讯 ima.copilot)",
   "type": "module",
   "main": "./index.mjs",
@@ -29,7 +29,7 @@
     "tencent"
   ],
   "license": "MIT",
-  "icon": "icon.png",
+  "icon": "https://raw.githubusercontent.com/dongsujiang0205-coder/magpie-ima-auth/v0.3.0/icon.png",
   "author": "dongsujiang0205-coder",
   "homepage": "https://github.com/dongsujiang0205-coder/magpie-ima-auth#readme",
   "bugs": {

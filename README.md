@@ -377,7 +377,7 @@ then `opencode auth login`.
 ## Checking it
 
 ```sh
-npm test             # 40 tests, including an end-to-end turn against a fake ima
+npm test             # 45 tests, including an end-to-end turn against a fake ima
 node smoke.mjs       # 10 checks: every hook magpie calls, in magpie's own shapes
 
 $env:IMA_COOKIE = "..."        # the x-ima-cookie header's own value, from a real ima
@@ -463,6 +463,26 @@ when a release is being cut, which is why several commits can share one version.
 
 Releases are also on GitHub: **Releases → Create a new release** → pick the tag
 you just pushed.
+
+### Where the icon and the summary come from
+
+magpie reads those two from different places depending on how a plugin is
+installed:
+
+| Source | Icon | Summary |
+| --- | --- | --- |
+| npm package | `package.json` `icon` | `package.json` `description` |
+| Official marketplace | shipped with the listing | shipped with the listing |
+| GitHub repository | the repository API's `icon` field | the repository's Description |
+
+GitHub's repository API returns no `icon` field for a **personal account**, so a
+plugin installed from GitHub always gets the generic glyph. Owning the icon
+therefore means publishing to npm, which is also why `icon` is an absolute URL
+pinned to the release tag: npm has to be able to fetch it, and a relative
+`icon.png` will not resolve.
+
+The GitHub-sourced summary just needs a Description filled in, through the gear
+next to About on the repository page.
 
 ## License
 

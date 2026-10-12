@@ -154,7 +154,7 @@ ima 每登录一天给 50 算力，领取接口是
 ## 自查
 
 ```sh
-npm test             # 40 个测试，含对假服务器的一次端到端对话
+npm test             # 45 个测试，含对假服务器的一次端到端对话
 node smoke.mjs       # 10 项检查：magpie 调的每个钩子，形状按 magpie 源码
 npm run scan         # 这个仓库要发出去的东西里没有个人信息
 ```
@@ -181,6 +181,22 @@ npm publish
 版本号只在切发布时才动，所以多个提交可以共用一个版本号。
 
 GitHub 上也有发布页：**Releases → Create a new release** → 选刚推的标签。
+
+### 图标和简介从哪来
+
+magpie 按**安装来源**取这两项，取的不是同一个地方：
+
+| 来源 | 图标 | 简介 |
+| --- | --- | --- |
+| npm 包 | `package.json` 的 `icon` | `package.json` 的 `description` |
+| 官方 marketplace | 随精选列表下发 | 随精选列表下发 |
+| GitHub 仓库 | 仓库 API 的 `icon` 字段 | 仓库的 Description |
+
+GitHub 的仓库 API 对**个人账号仓库不返回 `icon` 字段**，所以从 GitHub 安装时
+卡片一定是通用图标。想要自己的图标，只能发 npm——这也是 `icon` 写成绝对 URL
+并锁定到发布标签的原因：npm 那边要能直接取到图，相对路径 `icon.png` 解析不了。
+
+GitHub 来源的简介只需在仓库页 About 旁边的齿轮里填 Description。
 
 ## 许可
 
