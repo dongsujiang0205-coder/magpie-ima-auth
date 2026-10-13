@@ -20,6 +20,118 @@ One provider, `ima`. magpie has no built-in for it, so an agent set to
 > the plugin sends them only to `ima.qq.com`, stores them in OpenCode's or
 > magpie's own auth file, and nothing here phones home.
 
+> [!WARNING]
+> **ima is a knowledge base, not an agent. This plugin gives you ima's models
+> and ima's quota — it cannot give you ima's abilities, because ima does not
+> have them.**
+>
+> Set `ima/copilot/kimi-k3` as your model and ask it to read a file in your
+> project. It will not read the file. It will also tell you it tried: ima's
+> Copilot models emit no tool calls at all, and several of them answer with a
+> confident account of a search that never happened. WorkBuddy's models, given
+> the same tool on the same gateway, return the tool call correctly.
+>
+> ima never touches your disk. The only way a local file reaches it is to upload
+> it into ima's knowledge base first.
+>
+> Read [Limitations](#limitations) before assuming otherwise.
+
+## Limitations
+
+### ima cannot see your files, and cannot be made to
+
+This is the most common misunderstanding about this plugin, so it is measured
+rather than argued.
+
+ima's Q&A endpoint takes one question string. The knowledge base chat has no tool
+channel at all. Copilot's *client* sends a `client_tools` list, but the endpoint
+behind it accepts a single question and offers **no turn on which a tool result
+could be returned** — so a perfectly forwarded tool list would still be a dead
+end. The plugin therefore sends an empty list and declares every model as taking
+no tools.
+
+Given the same `read_file` tool, the same prompt, and the same gateway:
+
+| model | finish_reason | tool call |
+| --- | --- | --- |
+| `ima/copilot/kimi-k3` | `stop` | none |
+| `ima/copilot/glm-5.3` | `stop` | none |
+| `ima/copilot/hy4-preview` | `stop` | none |
+| `workbuddy/kimi-k3-1` | `tool_calls` | `read_file({"path": "..."})` |
+| `workbuddy/hy4-preview-f` | `tool_calls` | `read_file({"path": "..."})` |
+| `workbuddy/deepseek-v4.1-flash` | `tool_calls` | `read_file({"path": "..."})` |
+
+### ima's models will tell you they tried
+
+The failure is loud, which is what makes it expensive. Asked to read a file on
+`D:\`, ima's models replied that they had searched the workspace, listed the
+paths they had checked, and reported the file absent. No tool was called.
+`hy4-preview` returned a formatted table of three tool attempts with invented
+error messages.
+
+The invented details are plausible, and they lean toward a Linux sandbox — ima's
+Copilot carries a strong prior that it runs somewhere isolated. Taken at face
+value, the answer reads as a confident report that your files are missing.
+
+If an ima model says it looked for something, it did not.
+
+### The only way a local file reaches ima is to upload it
+
+ima ingests documents into its own cloud knowledge base. Once a file is in
+there, ima can retrieve and quote it — that is what the 知识库 models are for,
+and it works well. But the file leaves your disk at upload time. ima never reads
+your filesystem, and no configuration changes that.
+
+```
+your file  ->  upload to the ima knowledge base  ->  ima retrieves its cloud copy
+```
+
+not
+
+```
+your agent  ->  ima  ->  reads the file from your disk
+```
+
+### Nobody else has found a way around it either
+
+Across GitHub: the community's largest ima integration
+(`tencent-ima-copilot-mcp`, 131 stars, 36 forks) exposes exactly two tools,
+`ask` and `ask_with_kb`, both scoped to ima's own knowledge bases. The
+IDE-facing `ima-note-mcp` offers note and knowledge-base operations, including
+"get a file or web link" — which imports a file *into* ima rather than reading
+it from disk. A search for `copilot_qa_info`, `client_tools` or `robot_type`
+returns this repository's own README and nothing else: no third party has
+published ima's Copilot tool protocol either.
+
+Trae's package works around the missing channel by writing the tool schema into
+the prompt and parsing tagged blocks back out of the model's prose. That is
+omitted here on purpose — it is a large parser resting on models that, as
+measured above, do not emit structured tool calls at all.
+
+### What this is for
+
+Works:
+
+- **ima's knowledge base as a retrieval source.** The 知识库 models answer from
+  documents already ingested into your ima account.
+- **ima's Copilot models as a reasoning backend**, for an agent that brings its
+  own tools. OpenCode, Cursor, Cline or Claude Code do the reading; ima does the
+  thinking. This is the intended shape and it works today — `http://127.0.0.1:3425/v1`
+  with `ima/copilot/<model>`.
+- **ima's quota, shared.** The subscription's 算力 is spent through your agent
+  rather than through the ima app.
+- **Usage and automatic renewal.** The plugin keeps the session alive and reports
+  the remaining balance.
+
+Does not work:
+
+- ima reading your project, searching it, or editing it
+- ima running terminal commands
+- ima acting as a standalone agent that finishes a task on its own
+
+For those, use a provider whose service actually executes tools. This plugin is
+not one, and nothing here will make it so.
+
 ## What ima is, and why this plugin is a bridge
 
 ima has no OpenAI-compatible endpoint, and this plugin does not pretend
