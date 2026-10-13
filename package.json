@@ -1,6 +1,6 @@
 {
   "name": "magpie-ima-auth",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "magpie/OpenCode provider plugin for ima's 知识库 and Copilot accounts (腾讯 ima.copilot)",
   "type": "module",
   "main": "./index.mjs",
